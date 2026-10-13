@@ -7,7 +7,7 @@ import { IconComponent } from './icon';
 import { FdPipe, FtPipe, NumPipe } from './pipes';
 
 const QUICK: Record<string, string[]> = {
-  'л': ['0,05', '0,1', '0,25', '0,5', '0,7', '1'],
+  'л': ['0,05', '0,1', '0,25', '0,5', '0,75', '1'],
   'кг': ['0,05', '0,1', '0,25', '0,5', '1', '2'],
   'шт': ['1', '2', '3', '6', '12', '24'],
   'пак': ['1', '2', '5', '10'],
@@ -27,7 +27,7 @@ const QUICK: Record<string, string[]> = {
       <div class="card bignum">
         <span>Поточний залишок</span>
         <strong [class.neg]="stat().bal < 0">{{ stat().bal | num }} <small>{{ item().unit }}</small></strong>
-        <em>додано {{ stat().add | num }} · списано {{ stat().sub | num }}</em>
+        <em>додано {{ stat().add | num }} </em>
       </div>
       <h3 class="sec">Додати / Списати</h3>
       <div class="qty" [class.bad]="bad()">

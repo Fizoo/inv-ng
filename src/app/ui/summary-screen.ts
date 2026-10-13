@@ -1,17 +1,20 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
 import { totalsByUnit } from '../core/calc';
-import { fileName, makeCsv, makeXlsx, saveFile } from '../core/export';
+
 import { InventoryStore } from '../core/inventory.store';
 import { ITEMS } from '../core/items';
 import { ToastService } from '../core/toast.service';
 import { isoDate } from '../core/util';
 import { IconComponent } from './icon';
 import { FdPipe, FtPipe, NumPipe } from './pipes';
+import { ResultTableComponent } from './result-table';
+import { fileName, makeCsv, makeXlsx, saveFile } from '../core/export';
+
 
 @Component({
   selector: 'app-summary-screen',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, NumPipe, FdPipe, FtPipe],
+  imports: [IconComponent, NumPipe, FdPipe, FtPipe, ResultTableComponent],
   host: { class: 'screen' },
   template: `
     <header class="top slim">
@@ -41,25 +44,7 @@ import { FdPipe, FtPipe, NumPipe } from './pipes';
         <button class="plain" (click)="backup()"><app-icon n="down" /> Зберегти резервну копію</button>
       </div>
       <h3 class="sec">Таблиця</h3>
-      <div class="seg">
-        <button [class.on]="!all()" (click)="all.set(false)">З рухом · {{ store.movedCount() }}</button>
-        <button [class.on]="all()" (click)="all.set(true)">Усі · {{ total }}</button>
-      </div>
-      @if (rows().length === 0) {
-        <div class="empty">Операцій ще немає. Додайте або спишіть кількість у списку.</div>
-      } @else {
-        <div class="tbl">
-          <div class="th"><span>Товар</span><span>Додано</span><span>Списано</span><span>Залишок</span></div>
-          @for (it of rows(); track it.id) {
-            <div class="tr">
-              <span class="n">{{ it.name }}</span>
-              <span [class]="stat(it.id).add ? 'g' : 'z'">{{ stat(it.id).add | num }}</span>
-              <span [class]="stat(it.id).sub ? 'r' : 'z'">{{ stat(it.id).sub | num }}</span>
-              <span class="f" [class.r]="stat(it.id).bal < 0">{{ stat(it.id).bal | num }} <i>{{ it.unit }}</i></span>
-            </div>
-          }
-        </div>
-      }
+      <app-result-table />
     </div>
   `,
 })
@@ -68,12 +53,9 @@ export class SummaryScreenComponent {
   private readonly toast = inject(ToastService);
   readonly back = output<void>();
   protected readonly total = ITEMS.length;
-  protected readonly all = signal(false);
   protected readonly busy = signal(false);
   protected readonly ev = this.store.activeEvent;
   protected readonly totals = computed(() => totalsByUnit(this.store.stats()));
-  protected readonly rows = computed(() => (this.all() ? ITEMS : ITEMS.filter((i) => this.store.stats().get(i.id)!.n)));
-  protected stat(id: number) { return this.store.stats().get(id)!; }
 
   protected async xlsx() {
     const ev = this.ev();

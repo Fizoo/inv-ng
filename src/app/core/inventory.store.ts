@@ -8,11 +8,29 @@ import { Repo } from './repo';
 import { ToastService } from './toast.service';
 import { fmt, uid } from './util';
 
-interface State { events: EventMeta[]; activeId: string; ops: Op[]; loading: boolean; error: string }
+interface State {
+  events: EventMeta[];
+  activeId: string;
+  ops: Op[];
+  loading: boolean;
+  error: string;
+}
 
 const ACTIVE_KEY = 'inv2:active';
-const readActive = () => { try { return localStorage.getItem(ACTIVE_KEY) ?? ''; } catch { return ''; } };
-const writeActive = (id: string) => { try { localStorage.setItem(ACTIVE_KEY, id); } catch { /* ignore */ } };
+const readActive = () => {
+  try {
+    return localStorage.getItem(ACTIVE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
+const writeActive = (id: string) => {
+  try {
+    localStorage.setItem(ACTIVE_KEY, id);
+  } catch {
+    /* ignore */
+  }
+};
 
 export const InventoryStore = signalStore(
   { providedIn: 'root' },
@@ -20,7 +38,11 @@ export const InventoryStore = signalStore(
   withComputed(({ events, activeId, ops }) => {
     const activeEvent = computed(() => events().find((e) => e.id === activeId()));
     const stats = computed(() => computeStats(activeEvent(), ops()));
-    const movedCount = computed(() => { let n = 0; stats().forEach((s) => s.n && n++); return n; });
+    const movedCount = computed(() => {
+      let n = 0;
+      stats().forEach((s) => s.n && n++);
+      return n;
+    });
     return { activeEvent, stats, movedCount };
   }),
   withMethods((store, repo = inject(Repo), toast = inject(ToastService)) => {
@@ -35,7 +57,15 @@ export const InventoryStore = signalStore(
       unOps?.();
       unOps = null;
       patchState(store, { ops: [] });
-      if (id) unOps = repo.watchOps(id, (ops) => patchState(store, { ops }), (e) => { patchState(store, { error: 'Немає доступу до операцій' }); fail('Не вдалося завантажити операції')(e); });
+      if (id)
+        unOps = repo.watchOps(
+          id,
+          (ops) => patchState(store, { ops }),
+          (e) => {
+            patchState(store, { error: 'Немає доступу до операцій' });
+            fail('Не вдалося завантажити операції')(e);
+          },
+        );
     };
 
     const select = (id: string) => {
@@ -44,19 +74,31 @@ export const InventoryStore = signalStore(
       watchActive(id);
     };
 
-    const createEvent = async (name: string, ts: number, fromPrevId: string | null) => {
+    const createEvent = async (
+      name: string,
+      ts: number,
+      fromPrevId: string | null,
+      silent = false,
+    ) => {
       const opening: Record<string, number> = {};
       if (fromPrevId) {
         const prev = store.events().find((e) => e.id === fromPrevId);
         if (prev) {
           const st = computeStats(prev, await repo.getOps(prev.id));
-          st.forEach((s, id) => { if (s.bal !== 0) opening[String(id)] = s.bal; });
+          st.forEach((s, id) => {
+            if (s.bal !== 0) opening[String(id)] = s.bal;
+          });
         }
       }
-      const e: EventMeta = { id: uid(), name: name.trim() || `Подія #${store.events().length + 1}`, ts, opening };
+      const e: EventMeta = {
+        id: uid(),
+        name: name.trim() || `Подія #${store.events().length + 1}`,
+        ts,
+        opening,
+      };
       repo.saveEvent(e).catch(fail('Не вдалося створити подію'));
       select(e.id);
-      toast.show(`Створено «${e.name}»`);
+      if (!silent) toast.show(`Створено «${e.name}»`);
     };
 
     return {
@@ -67,22 +109,35 @@ export const InventoryStore = signalStore(
           (events, fromServer) => {
             patchState(store, { events, loading: false });
             if (events.length === 0) {
-              if (fromServer) createEvent('Подія #1', Date.now(), null);
+              if (fromServer) createEvent('Подія #1', Date.now(), null, true);
               return;
             }
-            if (!events.some((e) => e.id === store.activeId())) select(events[events.length - 1].id);
+            if (!events.some((e) => e.id === store.activeId()))
+              select(events[events.length - 1].id);
             else if (!unOps) watchActive(store.activeId());
           },
-          (e) => { patchState(store, { loading: false, error: 'Немає доступу до бази' }); fail('Не вдалося завантажити події')(e); },
+          (e) => {
+            patchState(store, { loading: false, error: 'Немає доступу до бази' });
+            fail('Не вдалося завантажити події')(e);
+          },
         );
       },
-      stop() { unEvents?.(); unOps?.(); unEvents = unOps = null; },
+      stop() {
+        unEvents?.();
+        unOps?.();
+        unEvents = unOps = null;
+      },
       select,
       createEvent,
 
       async deleteEvent(id: string) {
         if (store.events().length < 2 || id === store.activeId()) return;
-        try { await repo.deleteEvent(id); toast.show('Подію видалено'); } catch (e) { fail('Не вдалося видалити подію')(e); }
+        try {
+          await repo.deleteEvent(id);
+          toast.show('Подію видалено');
+        } catch (e) {
+          fail('Не вдалося видалити подію')(e);
+        }
       },
 
       commit(item: Item, type: OpType, qty: number) {
@@ -94,7 +149,11 @@ export const InventoryStore = signalStore(
         const after = before + (type === 'add' ? qty : -qty);
         const txt = `${type === 'add' ? 'Додано' : 'Списано'} ${fmt(qty)} ${item.unit} · ${item.name}`;
         const undo = () => repo.removeOp(evId, op.id).catch(fail('Не вдалося скасувати'));
-        toast.show(after < 0 ? `${txt}. Залишок став від’ємним` : txt, after < 0 ? 'warn' : 'ok', undo);
+        toast.show(
+          after < 0 ? `${txt}. Залишок став від’ємним` : txt,
+          after < 0 ? 'warn' : 'ok',
+          undo,
+        );
       },
 
       removeOp(opId: string) {
@@ -104,15 +163,28 @@ export const InventoryStore = signalStore(
       async makeBackup(): Promise<Blob> {
         const events = [];
         for (const e of store.events()) events.push({ ...e, ops: await repo.getOps(e.id) });
-        return new Blob([JSON.stringify({ app: 'inventory', version: 2, exportedAt: Date.now(), events })], { type: 'application/json' });
+        return new Blob(
+          [JSON.stringify({ app: 'inventory', version: 2, exportedAt: Date.now(), events })],
+          { type: 'application/json' },
+        );
       },
 
       /** Відновлення додає й оновлює записи за id, нічого не видаляючи. Підтримує і стару копію (версія 1). */
       async restore(text: string): Promise<number> {
         let d: any;
-        try { d = JSON.parse(text); } catch { throw new Error('Файл не є коректним JSON'); }
+        try {
+          d = JSON.parse(text);
+        } catch {
+          throw new Error('Файл не є коректним JSON');
+        }
         if (!d || d.app !== 'inventory') throw new Error('Це не резервна копія «Інвентаризації»');
-        let list: { id: string; name: string; ts: number; opening: Record<string, number>; ops: Op[] }[] = [];
+        let list: {
+          id: string;
+          name: string;
+          ts: number;
+          opening: Record<string, number>;
+          ops: Op[];
+        }[] = [];
         if (Array.isArray(d.events) && d.version >= 2) {
           list = d.events.map((e: any) => ({ ...e, ops: e.ops ?? [] }));
         } else if (d.meta && Array.isArray(d.meta.events)) {
@@ -121,7 +193,12 @@ export const InventoryStore = signalStore(
         let n = 0;
         for (const e of list) {
           if (!e.id || typeof e.name !== 'string') continue;
-          await repo.saveEvent({ id: String(e.id), name: e.name, ts: Number(e.ts) || Date.now(), opening: e.opening ?? {} });
+          await repo.saveEvent({
+            id: String(e.id),
+            name: e.name,
+            ts: Number(e.ts) || Date.now(),
+            opening: e.opening ?? {},
+          });
           const ops = (e.ops as Op[]).filter((o) => validOp(o) && ITEM_BY_ID.has(o.itemId));
           await repo.importOps(String(e.id), ops);
           n++;

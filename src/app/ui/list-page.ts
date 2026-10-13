@@ -1,12 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
+import { CATEGORIES, CATEGORY_COUNT, ITEM_CATEGORY } from '../core/categories';
 import { ITEMS, NORM_NAMES } from '../core/items';
 import { InventoryStore } from '../core/inventory.store';
 import { Item } from '../core/models';
-import { fDate, norm, unitKey } from '../core/util';
+import { norm } from '../core/util';
 import { IconComponent } from './icon';
 import { CommitEvent, ItemRowComponent } from './item-row';
 
-type Filter = 'all' | 'moved' | 'л' | 'кг' | 'шт';
+type Filter = string; // 'all' | 'unch' | ключ категорії
 
 @Component({
   selector: 'app-list-page',
@@ -15,14 +16,8 @@ type Filter = 'all' | 'moved' | 'л' | 'кг' | 'шт';
   host: { class: 'page' },
   template: `
     <header class="top">
-      <div class="logo"><app-icon n="glass" [s]="26" [w]="1.6" /></div>
-      <div class="ttl">
-        <h1>Інвентаризація</h1>
-        <p>{{ date() }} · {{ total }} позицій</p>
-      </div>
-      <button class="evchip" (click)="switchEvent.emit()" aria-label="Змінити подію">
-        <span>{{ store.activeEvent()?.name ?? '…' }}</span><app-icon n="chev" [s]="16" />
-      </button>
+    <!--  <div class="logo"><app-icon n="glass" [s]="22" [w]="1.8" /></div>
+      <h1>Інвентаризація</h1>-->
     </header>
     <div class="searchwrap">
       <div class="search">
@@ -48,41 +43,29 @@ type Filter = 'all' | 'moved' | 'л' | 'кг' | 'шт';
         </div>
       }
     </div>
-    <div class="cta">
-      <button class="primary" (click)="finish.emit()"><app-icon n="flag" /> Завершити інвентаризацію</button>
-    </div>
   `,
 })
 export class ListPageComponent {
   protected readonly store = inject(InventoryStore);
   readonly open = output<number>();
-  readonly finish = output<void>();
-  readonly switchEvent = output<void>();
 
-  protected readonly total = ITEMS.length;
   protected readonly q = signal('');
   protected readonly filter = signal<Filter>('all');
-  protected readonly date = computed(() => { const e = this.store.activeEvent(); return e ? fDate(e.ts) : ''; });
 
-  protected readonly chips = computed(() => {
-    const c: Record<string, number> = { 'л': 0, 'кг': 0, 'шт': 0 };
-    ITEMS.forEach((i) => (c[unitKey(i.unit)] = (c[unitKey(i.unit)] ?? 0) + 1));
-    return [
-      { k: 'all' as Filter, label: `Всі ${ITEMS.length}` },
-      { k: 'moved' as Filter, label: `Змінені ${this.store.movedCount()}` },
-      { k: 'л' as Filter, label: `л · ${c['л']}` },
-      { k: 'кг' as Filter, label: `кг · ${c['кг']}` },
-      { k: 'шт' as Filter, label: `шт · ${c['шт']}` },
-    ];
-  });
+  /** Всі → категорії алкоголю з кількістю → Не змінені */
+  protected readonly chips = computed(() => [
+    { k: 'all', label: `Всі ${ITEMS.length}` },
+    ...CATEGORIES.map((c) => ({ k: c.k as string, label: `${c.label} ${CATEGORY_COUNT.get(c.k)}` })),
+    { k: 'unch', label: `Не змінені ${ITEMS.length - this.store.movedCount()}` },
+  ]);
 
   protected readonly filtered = computed(() => {
     const toks = norm(this.q()).split(/\s+/).filter(Boolean);
     const f = this.filter();
     const stats = this.store.stats();
     return ITEMS.filter((it) => {
-      if (f === 'moved' && !stats.get(it.id)!.n) return false;
-      if ((f === 'л' || f === 'кг' || f === 'шт') && unitKey(it.unit) !== f) return false;
+      if (f === 'unch' && stats.get(it.id)!.n) return false;
+      if (f !== 'all' && f !== 'unch' && ITEM_CATEGORY.get(it.id) !== f) return false;
       const n = NORM_NAMES.get(it.id)!;
       return toks.every((t) => n.includes(t));
     });
