@@ -6,18 +6,20 @@ import { Item } from '../core/models';
 import { norm } from '../core/util';
 import { IconComponent } from './icon';
 import { CommitEvent, ItemRowComponent } from './item-row';
+import { PeersComponent } from './peers';
 
 type Filter = string; // 'all' | 'unch' | ключ категорії
 
 @Component({
   selector: 'app-list-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ItemRowComponent],
+  imports: [IconComponent, ItemRowComponent, PeersComponent],
   host: { class: 'page' },
   template: `
     <header class="top">
-    <!--  <div class="logo"><app-icon n="glass" [s]="22" [w]="1.8" /></div>
-      <h1>Інвентаризація</h1>-->
+      <div class="logo"><app-icon n="glass" [s]="22" [w]="1.8" /></div>
+      <h1>Інвентаризація</h1>
+      <app-peers />
     </header>
     <div class="searchwrap">
       <div class="search">

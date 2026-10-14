@@ -7,7 +7,7 @@ import { IconComponent } from './icon';
 import { FdPipe, FtPipe, NumPipe } from './pipes';
 
 const QUICK: Record<string, string[]> = {
-  'л': ['0,05', '0,1', '0,25', '0,5', '0,75', '1'],
+  'л': ['0,05', '0,1', '0,25', '0,5', '0,7', '1'],
   'кг': ['0,05', '0,1', '0,25', '0,5', '1', '2'],
   'шт': ['1', '2', '3', '6', '12', '24'],
   'пак': ['1', '2', '5', '10'],
@@ -27,7 +27,7 @@ const QUICK: Record<string, string[]> = {
       <div class="card bignum">
         <span>Поточний залишок</span>
         <strong [class.neg]="stat().bal < 0">{{ stat().bal | num }} <small>{{ item().unit }}</small></strong>
-        <em>додано {{ stat().add | num }} </em>
+        <em>додано {{ stat().add | num }} · списано {{ stat().sub | num }}</em>
       </div>
       <h3 class="sec">Додати / Списати</h3>
       <div class="qty" [class.bad]="bad()">
@@ -55,13 +55,15 @@ const QUICK: Record<string, string[]> = {
             <li [class]="o.type">
               <span class="pin"></span>
               <div class="tlbody">
-                <small>{{ o.ts | fd }} · {{ o.ts | ft }}</small>
+                <small>{{ o.ts | fd }} · {{ o.ts | ft }}@if (store.multi()) { <i class="udot" [style.background]="store.colorOf(o.by)" [title]="store.nameOf(o.by)"></i> }</small>
                 <span>{{ o.type === 'add' ? 'Додано' : 'Списано' }} {{ o.qty | num }} {{ item().unit }}</span>
               </div>
               <b>{{ o.type === 'add' ? '+' : '−' }}{{ o.qty | num }}</b>
-              <button class="del" [class.sure]="conf() === o.id" (click)="del(o.id)" (blur)="conf.set('')" aria-label="Видалити операцію">
-                @if (conf() === o.id) { Видалити? } @else { <app-icon n="trash" [s]="16" /> }
-              </button>
+              @if (store.canDelete(o)) {
+                <button class="del" [class.sure]="conf() === o.id" (click)="del(o.id)" (blur)="conf.set('')" aria-label="Видалити операцію">
+                  @if (conf() === o.id) { Видалити? } @else { <app-icon n="trash" [s]="16" /> }
+                </button>
+              }
             </li>
           }
         </ul>
@@ -70,7 +72,7 @@ const QUICK: Record<string, string[]> = {
   `,
 })
 export class DetailScreenComponent {
-  private readonly store = inject(InventoryStore);
+  protected readonly store = inject(InventoryStore);
   readonly itemId = input.required<number>();
   readonly back = output<void>();
 

@@ -26,6 +26,29 @@ import { FdPipe, FtPipe } from './pipes';
           <span class="evt"><b>{{ ev.name }}</b><small>{{ ev.ts | fd }} · {{ ev.ts | ft }}</small></span>
         </div>
       }
+      @if (repo.mode === 'firebase') {
+        <h3 class="sec">Учасники події</h3>
+        <div class="evlist">
+          @for (m of store.sortedMembers(); track m.uid) {
+            <div class="evwrap">
+              <div class="evrow static">
+                <i class="udot big" [style.background]="m.color"></i>
+                <span class="evt"><b>{{ m.name }}{{ m.uid === store.myUid() ? ' (ви)' : '' }}</b><small>{{ m.role === 'owner' ? 'Власник' : 'Гість' }} · {{ store.isOnline(m) ? 'онлайн' : 'не в мережі' }}</small></span>
+              </div>
+              @if (m.role === 'guest') {
+                <button class="del" [class.sure]="kconf() === m.uid" (blur)="kconf.set('')" (click)="kick(m.uid)" aria-label="Відключити гостя">
+                  @if (kconf() === m.uid) { Відключити? } @else { <app-icon n="trash" [s]="16" /> }
+                </button>
+              }
+            </div>
+          }
+        </div>
+        <div class="two">
+          <button class="btn ghostb" (click)="invite()"><app-icon n="plus" [s]="18" /> Запросити</button>
+          <button class="btn ghostb" (click)="store.renewInvite()">Нове посилання</button>
+        </div>
+        @if (link()) { <p class="note link">{{ link() }}</p> }
+      }
       <h3 class="sec">Попередні події</h3>
       @if (prev().length === 0) { <div class="empty small">Інших подій ще немає</div> }
       <div class="evlist">
@@ -69,10 +92,28 @@ export class EventsPageComponent {
   private readonly toast = inject(ToastService);
   readonly newEvent = output<void>();
   protected readonly conf = signal('');
+  protected readonly kconf = signal('');
+  protected readonly link = signal('');
   protected readonly prev = computed(() => this.store.events().filter((e) => e.id !== this.store.activeId()).reverse());
 
   protected del(id: string) {
     if (this.conf() === id) { this.store.deleteEvent(id); this.conf.set(''); } else this.conf.set(id);
+  }
+  protected kick(uid: string) {
+    if (this.kconf() === uid) { this.store.kick(uid); this.kconf.set(''); } else this.kconf.set(uid);
+  }
+  protected async invite() {
+    try {
+      const l = await this.store.inviteLink();
+      this.link.set(l);
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Інвентаризація', text: 'Приєднуйтесь до інвентаризації', url: l }); return; } catch { /* скасовано, копіюємо */ }
+      }
+      await navigator.clipboard.writeText(l);
+      this.toast.show('Посилання скопійовано');
+    } catch {
+      this.toast.show('Скопіюйте посилання вручну з рядка нижче', 'warn');
+    }
   }
   protected async backup() {
     try { saveFile(`Інвентаризація_резервна-копія_${isoDate(Date.now())}.json`, await this.store.makeBackup()); this.toast.show('Резервна копія збережена'); }

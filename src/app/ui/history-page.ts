@@ -23,7 +23,7 @@ import { FdPipe, FtPipe, NumPipe } from './pipes';
             <li [class]="o.type" (click)="open.emit(o.itemId)">
               <span class="pin"></span>
               <div class="tlbody">
-                <small>{{ o.ts | fd }} · {{ o.ts | ft }}</small>
+                <small>{{ o.ts | fd }} · {{ o.ts | ft }}@if (store.multi()) { <i class="udot" [style.background]="store.colorOf(o.by)" [title]="store.nameOf(o.by)"></i> }</small>
                 <span class="clamp1">{{ name(o.itemId) }}</span>
               </div>
               <b>{{ o.type === 'add' ? '+' : '−' }}{{ o.qty | num }} <i>{{ unit(o.itemId) }}</i></b>

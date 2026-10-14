@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { ITEM_BY_ID } from './items';
-import { EventMeta, Op, Unsub } from './models';
+import { EventMeta, Member, Op, Unsub } from './models';
 import { Repo } from './repo';
 
 const EV = 'inv2:events';
@@ -65,4 +65,10 @@ export class LocalRepo extends Repo {
     ops.forEach((o) => map.set(o.id, o));
     this.wr(OPS(id), [...map.values()]);
   }
+
+  // Гостей у локальному режимі немає
+  watchMembers(_id: string, cb: (m: Member[]) => void): Unsub { queueMicrotask(() => cb([])); return () => undefined; }
+  async setMember() { /* немає */ }
+  async removeMember() { /* немає */ }
+  async setJoinCode() { /* немає */ }
 }
