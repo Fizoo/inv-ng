@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
-import { ITEM_BY_ID } from '../core/items';
+import { Catalog } from '../core/catalog';
 import { InventoryStore } from '../core/inventory.store';
 import { IconComponent } from './icon';
 import { FdPipe, FtPipe, NumPipe } from './pipes';
@@ -39,8 +39,10 @@ export class HistoryPageComponent {
   protected readonly store = inject(InventoryStore);
   readonly open = output<number>();
   protected readonly lim = signal(120);
-  protected readonly rows = computed(() => [...this.store.ops()].sort((a, b) => b.ts - a.ts));
+  /** Розкладені операції інгредієнтів не дублюємо: у стрічці лишається один рядок на премікс */
+  protected readonly rows = computed(() => this.store.ops().filter((o) => !(o.pg && o.itemId >= 0)).sort((a, b) => b.ts - a.ts));
   protected readonly shown = computed(() => this.rows().slice(0, this.lim()));
-  protected name(id: number) { return ITEM_BY_ID.get(id)?.name ?? ''; }
-  protected unit(id: number) { return ITEM_BY_ID.get(id)?.unit ?? ''; }
+  private readonly catalog = inject(Catalog);
+  protected name(id: number) { return this.catalog.byId().get(id)?.name ?? 'Видалена позиція'; }
+  protected unit(id: number) { return this.catalog.byId().get(id)?.unit ?? ''; }
 }

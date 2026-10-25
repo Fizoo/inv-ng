@@ -1,14 +1,14 @@
 import { Injectable } from '@angular/core';
-import { ITEM_BY_ID } from './items';
-import { EventMeta, Member, Op, Unsub } from './models';
+import { EventMeta, Item, Member, Op, PrevSnap, Unsub } from './models';
 import { Repo } from './repo';
 
 const EV = 'inv2:events';
 const OPS = (id: string) => `inv2:ops:${id}`;
+const ITEMS_KEY = 'inv2:items';
 
 export const validOp = (o: any): o is Op =>
-  !!o && typeof o.id === 'string' && ITEM_BY_ID.has(o.itemId) && (o.type === 'add' || o.type === 'sub') &&
-  Number.isFinite(o.qty) && o.qty > 0 && Number.isFinite(o.ts);
+  !!o && typeof o.id === 'string' && Number.isFinite(o.itemId) && (o.type === 'add' || o.type === 'sub') &&
+  Number.isFinite(o.qty) && o.qty > 0 && Number.isFinite(o.ts) && (o.pg === undefined || typeof o.pg === 'string');
 
 @Injectable()
 export class LocalRepo extends Repo {
@@ -64,6 +64,24 @@ export class LocalRepo extends Repo {
     const map = new Map(this.ops(id).map((o) => [o.id, o]));
     ops.forEach((o) => map.set(o.id, o));
     this.wr(OPS(id), [...map.values()]);
+  }
+
+  private customItems() { return this.rd<Item[]>(ITEMS_KEY, []).filter((i) => i && Number.isFinite(i.id) && typeof i.name === 'string'); }
+  watchItems(cb: (i: Item[]) => void): Unsub {
+    const f = () => cb(this.customItems());
+    this.listeners.add(f);
+    queueMicrotask(f);
+    return () => this.listeners.delete(f);
+  }
+  async saveItem(item: Item) { this.wr(ITEMS_KEY, [...this.customItems().filter((i) => i.id !== item.id), item]); }
+  async deleteItem(id: number) { this.wr(ITEMS_KEY, this.customItems().filter((i) => i.id !== id)); }
+  async setPrev(eventId: string, prev: PrevSnap | null) {
+    const list = this.events().map((e) => {
+      if (e.id !== eventId) return e;
+      const { prev: _old, ...rest } = e;
+      return prev ? { ...rest, prev } : rest;
+    });
+    this.wr(EV, list);
   }
 
   // Гостей у локальному режимі немає

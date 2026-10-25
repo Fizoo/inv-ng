@@ -1,15 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, output, signal } from '@angular/core';
 import { totalsByUnit } from '../core/calc';
-
+import { fileName, makeCsv, makeXlsx, saveFile } from '../core/export';
+import { Catalog } from '../core/catalog';
 import { InventoryStore } from '../core/inventory.store';
-import { ITEMS } from '../core/items';
 import { ToastService } from '../core/toast.service';
 import { isoDate } from '../core/util';
 import { IconComponent } from './icon';
 import { FdPipe, FtPipe, NumPipe } from './pipes';
 import { ResultTableComponent } from './result-table';
-import { fileName, makeCsv, makeXlsx, saveFile } from '../core/export';
-
 
 @Component({
   selector: 'app-summary-screen',
@@ -26,7 +24,7 @@ import { fileName, makeCsv, makeXlsx, saveFile } from '../core/export';
     </header>
     <div class="scroll pad">
       <div class="card stats">
-        <div><strong>{{ store.movedCount() }}</strong><span>з {{ total }} позицій опрацьовано</span></div>
+        <div><strong>{{ store.movedCount() }}</strong><span>з {{ total() }} позицій опрацьовано</span></div>
         <div><strong>{{ store.ops().length }}</strong><span>операцій</span></div>
       </div>
       @if (totals().length) {
@@ -52,23 +50,24 @@ export class SummaryScreenComponent {
   protected readonly store = inject(InventoryStore);
   private readonly toast = inject(ToastService);
   readonly back = output<void>();
-  protected readonly total = ITEMS.length;
+  private readonly catalog = inject(Catalog);
+  protected readonly total = computed(() => this.catalog.items().length);
   protected readonly busy = signal(false);
   protected readonly ev = this.store.activeEvent;
-  protected readonly totals = computed(() => totalsByUnit(this.store.stats()));
+  protected readonly totals = computed(() => totalsByUnit(this.catalog.items(), this.store.stats()));
 
   protected async xlsx() {
     const ev = this.ev();
     if (!ev) return;
     this.busy.set(true);
-    try { saveFile(fileName(ev, 'xlsx'), await makeXlsx(ev, this.store.ops(), this.store.stats())); this.toast.show('Excel: файл готовий'); }
+    try { saveFile(fileName(ev, 'xlsx'), await makeXlsx(this.catalog.items(), ev, this.store.ops(), this.store.stats())); this.toast.show('Excel: файл готовий'); }
     catch { this.toast.show('Не вдалося створити Excel', 'err'); }
     finally { this.busy.set(false); }
   }
   protected csv() {
     const ev = this.ev();
     if (!ev) return;
-    try { saveFile(fileName(ev, 'csv'), makeCsv(ev, this.store.stats())); this.toast.show('CSV: файл готовий'); }
+    try { saveFile(fileName(ev, 'csv'), makeCsv(this.catalog.items(), ev, this.store.stats())); this.toast.show('CSV: файл готовий'); }
     catch { this.toast.show('Не вдалося створити CSV', 'err'); }
   }
   protected async backup() {

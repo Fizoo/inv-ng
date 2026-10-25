@@ -7,11 +7,12 @@ import { ToastService } from '../core/toast.service';
 import { isoDate } from '../core/util';
 import { IconComponent } from './icon';
 import { FdPipe, FtPipe } from './pipes';
+import { PrevPickerComponent } from './prev-picker';
 
 @Component({
   selector: 'app-events-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, FdPipe, FtPipe],
+  imports: [IconComponent, FdPipe, FtPipe, PrevPickerComponent],
   host: { class: 'page' },
   template: `
     <header class="top">
@@ -26,6 +27,9 @@ import { FdPipe, FtPipe } from './pipes';
           <span class="evt"><b>{{ ev.name }}</b><small>{{ ev.ts | fd }} · {{ ev.ts | ft }}</small></span>
         </div>
       }
+      <h3 class="sec">Минулий переоблік</h3>
+      <p class="note">Його залишки показуються в деталях позиції та в таблиці поруч з поточними.</p>
+      <app-prev-picker />
       @if (repo.mode === 'firebase') {
         <h3 class="sec">Учасники події</h3>
         <div class="evlist">

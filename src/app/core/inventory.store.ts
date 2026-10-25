@@ -1,19 +1,20 @@
 import { computed, inject } from '@angular/core';
 import { patchState, signalStore, withComputed, withMethods, withState } from '@ngrx/signals';
+import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 import { computeStats } from './calc';
 import { OWNER_COLOR, newCode, pickColor } from './colors';
-import { ITEM_BY_ID } from './items';
+import { Catalog } from './catalog';
+import { PREMIX_BY_ID, partQty, premixParts } from './premix';
 import { validOp } from './local-repo';
-import { EventMeta, Item, Member, Op, OpType, Unsub } from './models';
+import { EventMeta, Item, Member, Op, OpType, PrevSnap, Unsub } from './models';
 import { Repo } from './repo';
 import { ToastService } from './toast.service';
-import { fmt, uid } from './util';
-import { environment } from '../../environments/environment';
+import { fmt, round3, uid } from './util';
 
 interface State {
   events: EventMeta[]; activeId: string; ops: Op[]; members: Member[];
-  loading: boolean; error: string; now: number;
+  loading: boolean; error: string; now: number; commits: number;
 }
 
 const ACTIVE_KEY = 'inv2:active';
@@ -28,19 +29,32 @@ const BEAT_MS = 30_000;
 
 export const InventoryStore = signalStore(
   { providedIn: 'root' },
-  withState<State>({ events: [], activeId: readActive(), ops: [], members: [], loading: true, error: '', now: Date.now() }),
+  withState<State>({ events: [], activeId: readActive(), ops: [], members: [], loading: true, error: '', now: Date.now(), commits: 0 }),
   withComputed(({ events, activeId, ops, members }) => {
     const auth = inject(AuthService);
+    const catalog = inject(Catalog);
     const activeEvent = computed(() => events().find((e) => e.id === activeId()));
-    const stats = computed(() => computeStats(activeEvent(), ops()));
-    const movedCount = computed(() => { let n = 0; stats().forEach((s) => s.n && n++); return n; });
+    const stats = computed(() => computeStats(catalog.all(), activeEvent(), ops()));
+    /** Назва преміксу за id групи, щоб підписати розкладені операції */
+    const premixOfGroup = computed(() => {
+      const m = new Map<string, string>();
+      for (const o of ops()) if (o.pg && o.itemId < 0) m.set(o.pg, catalog.byId().get(o.itemId)?.name ?? '');
+      return m;
+    });
+    /** Підключений минулий переоблік: знімок його залишків (є в документі події, тому доступний і гостям) */
+    const prev = computed(() => activeEvent()?.prev ?? null);
+    const prevBal = computed(() => {
+      const p = prev();
+      return p ? new Map(Object.entries(p.bal).map(([k, v]) => [Number(k), Number(v) || 0])) : null;
+    });
+    const movedCount = computed(() => { let n = 0; const st = stats(); for (const it of catalog.items()) if (st.get(it.id)?.n) n++; return n; });
     const memberMap = computed(() => new Map(members().map((m) => [m.uid, m])));
     /** Показуємо кольорові точки лише коли в події більше однієї людини */
     const multi = computed(() => members().length > 1);
     const sortedMembers = computed(() => [...members()].sort((a, b) => a.joinedAt - b.joinedAt));
-    return { activeEvent, stats, movedCount, memberMap, multi, sortedMembers, isGuest: auth.isGuest, myUid: auth.uid };
+    return { activeEvent, stats, premixOfGroup, prev, prevBal, movedCount, memberMap, multi, sortedMembers, isGuest: auth.isGuest, myUid: auth.uid };
   }),
-  withMethods((store, repo = inject(Repo), toast = inject(ToastService), auth = inject(AuthService)) => {
+  withMethods((store, repo = inject(Repo), toast = inject(ToastService), auth = inject(AuthService), catalog = inject(Catalog)) => {
     let unEvents: Unsub | null = null;
     let unOps: Unsub | null = null;
     let unMembers: Unsub | null = null;
@@ -92,25 +106,58 @@ export const InventoryStore = signalStore(
       }
     };
 
+    /** Знімок підсумкових залишків події: ненульові залишки по позиціях */
+    const snapshot = async (src: EventMeta): Promise<PrevSnap> => {
+      const st = computeStats(catalog.items(), src, await repo.getOps(src.id));
+      const bal: Record<string, number> = {};
+      st.forEach((s, id) => { if (s.bal !== 0) bal[String(id)] = s.bal; }); // лише реальні позиції, без преміксів
+      return { id: src.id, name: src.name, ts: src.ts, bal };
+    };
+
     const createEvent = async (name: string, ts: number, fromPrevId: string | null, silent = false) => {
       const opening: Record<string, number> = {};
-      if (fromPrevId) {
-        const prev = store.events().find((e) => e.id === fromPrevId);
-        if (prev) {
-          const st = computeStats(prev, await repo.getOps(prev.id));
-          st.forEach((s, id) => { if (s.bal !== 0) opening[String(id)] = s.bal; });
-        }
+      const events = store.events();
+      // Нова подія за замовчуванням порівнюється з останньою попередньою. Змінити можна в «Івентах» чи «Таблиці».
+      const src = events.find((e) => e.id === fromPrevId) ?? events[events.length - 1];
+      let prevSnap: PrevSnap | undefined;
+      if (src) {
+        try {
+          prevSnap = await snapshot(src);
+          if (fromPrevId === src.id) for (const [k, v] of Object.entries(prevSnap.bal)) opening[k] = v;
+        } catch (err) { console.error(err); }
       }
-      const e: EventMeta = { id: uid(), name: name.trim() || `Подія #${store.events().length + 1}`, ts, opening, joinCode: newCode() };
+      const e: EventMeta = { id: uid(), name: name.trim() || `Подія #${events.length + 1}`, ts, opening, joinCode: newCode() };
+      if (prevSnap) e.prev = prevSnap;
       repo.saveEvent(e).catch(fail('Не вдалося створити подію'));
       select(e.id);
       if (!silent) toast.show(`Створено «${e.name}»`);
+    };
+
+    /** Премікс: одна «головна» операція (для підсумку по преміксу) і операції по кожному інгредієнту */
+    const commitPremix = (evId: string, item: Item, type: OpType, qty: number) => {
+      const pm = PREMIX_BY_ID.get(item.id);
+      if (!pm) return;
+      const { parts, missing, total } = premixParts(pm, catalog.byName());
+      if (missing.length) { toast.show(`Немає в списку: ${missing.join(', ')}. Перевірте premix.ts`, 'err'); return; }
+      const pg = uid();
+      const ts = Date.now();
+      const by = auth.uid() || undefined;
+      const list: Op[] = [{ id: uid(), itemId: item.id, type, qty, ts, by, pg }];
+      for (const p of parts) {
+        const q = partQty(qty, p, total);
+        if (q > 0) list.push({ id: uid(), itemId: p.item.id, type, qty: q, ts, by, pg });
+      }
+      for (const o of list) repo.addOp(evId, o).catch(fail('Не вдалося зберегти операцію'));
+      patchState(store, { commits: store.commits() + 1 });
+      const undo = () => list.forEach((o) => repo.removeOp(evId, o.id).catch(fail('Не вдалося скасувати')));
+      toast.show(`${type === 'add' ? 'Додано' : 'Списано'} ${fmt(round3(qty))} л преміксу · ${pm.name}. Інгредієнтів: ${list.length - 1}`, 'ok', undo);
     };
 
     return {
       start() {
         unEvents?.();
         clearInterval(beat);
+        catalog.start();
         patchState(store, { loading: true, error: '' });
         unEvents = repo.watchEvents(
           (events, fromServer) => {
@@ -129,6 +176,7 @@ export const InventoryStore = signalStore(
         document.addEventListener('visibilitychange', heartbeat);
       },
       stop() {
+        catalog.stop();
         unEvents?.(); unOps?.(); unMembers?.();
         unEvents = unOps = unMembers = null;
         clearInterval(beat);
@@ -136,6 +184,18 @@ export const InventoryStore = signalStore(
       },
       select,
       createEvent,
+
+      /** Підключити минулий переоблік до активної події (prevId порожній: відключити) */
+      async setPrev(prevId: string) {
+        const ev = store.activeEvent();
+        if (!ev || auth.isGuest()) return;
+        try {
+          const src = store.events().find((e) => e.id === prevId && e.id !== ev.id);
+          if (!prevId || !src) { await repo.setPrev(ev.id, null); toast.show('Порівняння вимкнено'); return; }
+          await repo.setPrev(ev.id, await snapshot(src));
+          toast.show(`Підключено: ${src.name}`);
+        } catch (e) { fail('Не вдалося підключити минулий переоблік')(e); }
+      },
 
       async deleteEvent(id: string) {
         if (store.events().length < 2 || id === store.activeId()) return;
@@ -145,17 +205,23 @@ export const InventoryStore = signalStore(
       commit(item: Item, type: OpType, qty: number) {
         const evId = store.activeId();
         if (!evId) return;
+        if (item.id < 0) { commitPremix(evId, item, type, qty); return; }
         const before = store.stats().get(item.id)?.bal ?? 0;
         const op: Op = { id: uid(), itemId: item.id, type, qty, ts: Date.now(), by: auth.uid() || undefined };
         repo.addOp(evId, op).catch(fail('Не вдалося зберегти операцію'));
+        patchState(store, { commits: store.commits() + 1 });
         const after = before + (type === 'add' ? qty : -qty);
         const txt = `${type === 'add' ? 'Додано' : 'Списано'} ${fmt(qty)} ${item.unit} · ${item.name}`;
         const undo = () => repo.removeOp(evId, op.id).catch(fail('Не вдалося скасувати'));
         toast.show(after < 0 ? `${txt}. Залишок став від’ємним` : txt, after < 0 ? 'warn' : 'ok', undo);
       },
 
+      /** Операція з групи преміксу видаляється разом з усією групою */
       removeOp(opId: string) {
-        repo.removeOp(store.activeId(), opId).catch(fail('Не вдалося видалити операцію'));
+        const id = store.activeId();
+        const op = store.ops().find((o) => o.id === opId);
+        const ids = op?.pg ? store.ops().filter((o) => o.pg === op.pg).map((o) => o.id) : [opId];
+        for (const i of ids) repo.removeOp(id, i).catch(fail('Не вдалося видалити операцію'));
       },
 
       /** Власник видаляє будь-яку операцію, гість лише свої */
@@ -188,7 +254,7 @@ export const InventoryStore = signalStore(
       async makeBackup(): Promise<Blob> {
         const events = [];
         for (const e of store.events()) events.push({ ...e, ops: await repo.getOps(e.id) });
-        return new Blob([JSON.stringify({ app: 'inventory', version: 2, exportedAt: Date.now(), events })], { type: 'application/json' });
+        return new Blob([JSON.stringify({ app: 'inventory', version: 2, exportedAt: Date.now(), items: catalog.custom(), events })], { type: 'application/json' });
       },
 
       /** Відновлення додає й оновлює записи за id, нічого не видаляючи. Підтримує і стару копію (версія 1). */
@@ -203,10 +269,17 @@ export const InventoryStore = signalStore(
           list = d.meta.events.map((e: any) => ({ ...e, ops: d.ops?.[e.id] ?? [] }));
         } else throw new Error('Невідомий формат копії');
         let n = 0;
-        for (const e of list) {
+        if (Array.isArray(d.items) && !auth.isGuest()) {
+          for (const i of d.items) {
+            if (i && Number.isFinite(i.id) && typeof i.name === 'string' && typeof i.unit === 'string') await repo.saveItem({ id: i.id, code: null, name: i.name, unit: i.unit });
+          }
+        }
+        for (const e of list as any[]) {
           if (!e.id || typeof e.name !== 'string') continue;
-          await repo.saveEvent({ id: String(e.id), name: e.name, ts: Number(e.ts) || Date.now(), opening: e.opening ?? {} });
-          const ops = (e.ops as Op[]).filter((o) => validOp(o) && ITEM_BY_ID.has(o.itemId));
+          const meta: EventMeta = { id: String(e.id), name: e.name, ts: Number(e.ts) || Date.now(), opening: e.opening ?? {} };
+          if (e.prev && typeof e.prev === 'object') meta.prev = e.prev;
+          await repo.saveEvent(meta);
+          const ops = (e.ops as Op[]).filter((o) => validOp(o));
           await repo.importOps(String(e.id), ops);
           n++;
         }
