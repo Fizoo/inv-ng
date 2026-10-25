@@ -22,12 +22,6 @@ export interface CommitEvent { item: Item; type: OpType; qty: number }
       <span class="un">{{ item().unit }}</span>
     </button>
     <div class="ctrl">
-      <!-- <div class="grp sub" [class.bad]="bad() === 'sub'">
-        <button class="qb" (click)="go('sub')" [attr.aria-label]="'Списати ' + item().name"><app-icon n="minus" [s]="18" [w]="2.4" /></button>
-        <input class="qin" inputmode="decimal" enterkeyhint="done" autocomplete="off" [placeholder]="item().unit"
-          [value]="s()" (input)="type('sub', $event)" (focus)="sel($event)" (keydown.enter)="go('sub')"
-          [attr.aria-label]="'Кількість списання, ' + item().unit" />
-      </div>-->
       <div class="grp add" [class.bad]="bad() === 'add'">
         <input
           class="qin"

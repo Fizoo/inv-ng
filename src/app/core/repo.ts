@@ -1,4 +1,4 @@
-import { EventMeta, Member, Op, Unsub } from './models';
+import { EventMeta, Item, Member, Op, PrevSnap, Unsub } from './models';
 
 /**
  * Сховище даних. Дві реалізації:
@@ -20,4 +20,10 @@ export abstract class Repo {
   abstract setMember(eventId: string, uid: string, patch: Partial<Member> & { code?: string }): Promise<void>;
   abstract removeMember(eventId: string, uid: string): Promise<void>;
   abstract setJoinCode(eventId: string, code: string): Promise<void>;
+  /** Додані вручну позиції (поверх списку з Excel) */
+  abstract watchItems(cb: (items: Item[]) => void, err: (e: unknown) => void): Unsub;
+  abstract saveItem(item: Item): Promise<void>;
+  abstract deleteItem(id: number): Promise<void>;
+  /** Підключення минулого переобліку: знімок його залишків (null прибирає) */
+  abstract setPrev(eventId: string, prev: PrevSnap | null): Promise<void>;
 }

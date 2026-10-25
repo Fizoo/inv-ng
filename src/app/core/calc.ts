@@ -1,10 +1,9 @@
-import { ITEMS } from './items';
-import { EventMeta, Op, Stat } from './models';
+import { EventMeta, Item, Op, Stat } from './models';
 import { round3 } from './util';
 
-export function computeStats(ev: EventMeta | undefined, ops: Op[]): Map<number, Stat> {
+export function computeStats(items: Item[], ev: Pick<EventMeta, 'opening'> | undefined, ops: Op[]): Map<number, Stat> {
   const m = new Map<number, Stat>();
-  for (const it of ITEMS) m.set(it.id, { add: 0, sub: 0, bal: 0, n: 0 });
+  for (const it of items) m.set(it.id, { add: 0, sub: 0, bal: 0, n: 0 });
   for (const op of ops) {
     const s = m.get(op.itemId);
     if (!s) continue;
@@ -16,11 +15,11 @@ export function computeStats(ev: EventMeta | undefined, ops: Op[]): Map<number, 
   return m;
 }
 
-export function totalsByUnit(stats: Map<number, Stat>) {
+export function totalsByUnit(items: Item[], stats: Map<number, Stat>) {
   const t = new Map<string, { add: number; sub: number; pos: number }>();
-  for (const it of ITEMS) {
-    const s = stats.get(it.id)!;
-    if (!s.n) continue;
+  for (const it of items) {
+    const s = stats.get(it.id);
+    if (!s?.n) continue;
     const r = t.get(it.unit) ?? { add: 0, sub: 0, pos: 0 };
     r.add = round3(r.add + s.add);
     r.sub = round3(r.sub + s.sub);

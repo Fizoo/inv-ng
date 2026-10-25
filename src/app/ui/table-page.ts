@@ -3,13 +3,14 @@ import { InventoryStore } from '../core/inventory.store';
 import { IconComponent } from './icon';
 import { FdPipe, FtPipe } from './pipes';
 import { PeersComponent } from './peers';
+import { PrevPickerComponent } from './prev-picker';
 import { ResultTableComponent } from './result-table';
 
 /** Поточний результат у будь-який момент, без завантаження файлу. */
 @Component({
   selector: 'app-table-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [IconComponent, ResultTableComponent, FdPipe, FtPipe, PeersComponent],
+  imports: [IconComponent, ResultTableComponent, FdPipe, FtPipe, PeersComponent, PrevPickerComponent],
   host: { class: 'page' },
   template: `
     <header class="top">
@@ -20,7 +21,13 @@ import { ResultTableComponent } from './result-table';
       </div>
       <app-peers />
     </header>
-    <div class="scroll pad"><app-result-table /></div>
+    <div class="scroll pad">
+      @if (!store.isGuest()) {
+        <p class="note">Порівняти з минулим переобліком</p>
+        <app-prev-picker />
+      }
+      <app-result-table />
+    </div>
   `,
 })
 export class TablePageComponent {
